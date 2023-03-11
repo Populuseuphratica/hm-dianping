@@ -8,13 +8,25 @@ import com.hmdp.entity.VoucherOrder;
 import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
+import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisLock;
 import com.hmdp.utils.UserHolder;
+import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.annotation.PostConstruct;
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -28,13 +40,60 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
 
+    // 读取lua脚本
+    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT;
+
+    // 阻塞队列
+    private static final BlockingQueue<VoucherOrder> BLOCKINGQUEUE;
+
+    static {
+        UNLOCK_SCRIPT = new DefaultRedisScript<>();
+        UNLOCK_SCRIPT.setLocation(new ClassPathResource("/lua/seckill.lua"));
+        UNLOCK_SCRIPT.setResultType(Long.class);
+
+        BLOCKINGQUEUE = new ArrayBlockingQueue(1024 * 1024);
+    }
+
+
     private final ISeckillVoucherService seckillVoucherService;
 
     private RedisLock redisLock;
 
-    public VoucherOrderServiceImpl(ISeckillVoucherService seckillVoucherService, RedisLock redisLock) {
+    private RedisTemplate redisTemplate;
+
+    // 线程池
+    private ThreadPoolTaskExecutor taskExecutor;
+
+    // 在另一个线程中调用本类事务方法用
+    @Autowired
+    private VoucherOrderServiceImpl voucherOrderServiceImpl;
+
+    @Autowired
+    public VoucherOrderServiceImpl(ISeckillVoucherService seckillVoucherService, RedisLock redisLock, RedissonClient redissonClient, RedisTemplate redisTemplate, @Qualifier("taskExecutor") ThreadPoolTaskExecutor taskExecutor) {
         this.seckillVoucherService = seckillVoucherService;
         this.redisLock = redisLock;
+        this.redisTemplate = redisTemplate;
+        this.taskExecutor = taskExecutor;
+    }
+
+    /**
+     * @Description: 当bean被创建时就开始执行任务，另开线程读取阻塞队列中的任务执行<br/>
+     * @Author: sanyeshu <br/>
+     * @Date: 2023/3/10 20:34 <br/>
+     * @param: <br/>
+     * @Return: void <br/>
+     * @Throws:
+     */
+    @PostConstruct
+    public void doTask() {
+
+        taskExecutor.execute(() -> {
+            // TODO 引入MQ后替换
+            while (true) {
+                voucherOrderServiceImpl.createOrderForAsync();
+            }
+        });
+
     }
 
     /**
@@ -47,6 +106,91 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
      */
     @Override
     public Result seckillVoucher(Long voucherId) {
+
+        return seckillVoucherAsync(voucherId);
+    }
+
+    /**
+     * @Description: 异步实现秒杀<br />
+     * @Author: sanyeshu <br/>
+     * @Date: 2023/3/10 20:33 <br/>
+     * @param: Long voucherId <br/>
+     * @Return: com.hmdp.dto.Result <br/>
+     * @Throws:
+     */
+    public Result seckillVoucherAsync(Long voucherId) {
+        // 用户id
+        Long userId = UserHolder.getUser().getId();
+        // 1.查询优惠券
+        SeckillVoucher voucher = seckillVoucherService.getById(voucherId);
+
+        if (voucher == null) {
+            return Result.fail("秒杀券不存在");
+        }
+        // 2.判断秒杀是否开始
+        if (voucher.getBeginTime().isAfter(LocalDateTime.now())) {
+            // 尚未开始
+            return Result.fail("秒杀尚未开始！");
+        }
+        // 3.判断秒杀是否已经结束
+        if (voucher.getEndTime().isBefore(LocalDateTime.now())) {
+            // 尚未开始
+            return Result.fail("秒杀已经结束！");
+        }
+
+        // 调用lua脚本，在redis中判断库存和一人一单，成功则扣减库存，返回0l
+        Long luaResult = (Long) redisTemplate.execute(
+                UNLOCK_SCRIPT,
+                Arrays.asList(RedisConstants.SECKILL_STOCK_KEY, RedisConstants.SECKILL_ORDER_KEY),
+                voucherId, userId
+        );
+
+        if (luaResult != 0l) {
+            if (luaResult == 1l) {
+                return Result.fail("秒杀券库存不足");
+            } else {
+                return Result.fail("您已购买过此券，不能再次购买");
+            }
+        }
+
+        // 7.创建订单
+        VoucherOrder voucherOrder = new VoucherOrder();
+        // 7.1.使用雪花算法创建订单id
+        long orderId = IdWorker.getId();
+        voucherOrder.setId(orderId);
+        // 7.2.用户id
+        voucherOrder.setUserId(userId);
+        // 7.3.代金券id
+        voucherOrder.setVoucherId(voucherId);
+        // 插入阻塞队列
+        boolean offer = BLOCKINGQUEUE.offer(voucherOrder);
+
+        if (offer) {
+            // 7.返回订单id
+            return Result.ok(orderId);
+        } else {
+            return Result.fail("当前业务繁忙，请稍后再试");
+        }
+    }
+
+    @Transactional
+    public void createOrderForAsync() {
+        VoucherOrder voucherOrder = null;
+        try {
+            voucherOrder = BLOCKINGQUEUE.take();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+        // 存储订单
+        save(voucherOrder);
+
+        // 扣减库存，因为有redis保证，所以不用再次加锁
+        seckillVoucherService.update()
+                .setSql("stock= stock -1")
+                .eq("voucher_id", voucherOrder.getVoucherId()).update();
+    }
+
+    public Result seckillVoucherEasy(Long voucherId) {
         // 1.查询优惠券
         SeckillVoucher voucher = seckillVoucherService.getById(voucherId);
         if (voucher == null) {
@@ -180,6 +324,14 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         }
     }
 
+    /**
+     * @Description: 判断订单-扣减库存-创建订单<br/>
+     * @Author: sanyeshu <br/>
+     * @Date: 2023/3/9 16:43 <br/>
+     * @param: Long voucherId <br/>
+     * @Return: com.hmdp.dto.Result <br/>
+     * @Throws:
+     */
     @Transactional
     @Override
     public Result createVoucherOrder(Long voucherId) {
