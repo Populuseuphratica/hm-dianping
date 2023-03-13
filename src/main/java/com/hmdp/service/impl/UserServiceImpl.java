@@ -59,6 +59,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         return Result.ok(code);
     }
 
+    public void Logout() {
+        
+    }
+
     @Override
     public Result login(LoginFormDTO loginForm, HttpSession session) {
         // 1.校验手机号

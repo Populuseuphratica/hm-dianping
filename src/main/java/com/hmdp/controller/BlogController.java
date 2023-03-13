@@ -5,9 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
-import com.hmdp.entity.User;
 import com.hmdp.service.IBlogService;
-import com.hmdp.service.IUserService;
 import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
 import org.springframework.web.bind.annotation.*;
@@ -29,8 +27,7 @@ public class BlogController {
 
     @Resource
     private IBlogService blogService;
-    @Resource
-    private IUserService userService;
+
 
     @PostMapping
     public Result saveBlog(@RequestBody Blog blog) {
@@ -43,12 +40,33 @@ public class BlogController {
         return Result.ok(blog.getId());
     }
 
+    /**
+     * @Description: 点赞<br />
+     * @Author: sanyeshu <br/>
+     * @Date: 2023/3/12 18:14 <br/>
+     * @param: Long id 探店笔记Id<br/>
+     * @Return: com.hmdp.dto.Result <br/>
+     * @Throws:
+     */
     @PutMapping("/like/{id}")
     public Result likeBlog(@PathVariable("id") Long id) {
         // 修改点赞数量
-        blogService.update()
-                .setSql("liked = liked + 1").eq("id", id).update();
+        blogService.likeBlog(id);
         return Result.ok();
+    }
+
+    /**
+     * @Description: 笔记详细页面最早点赞人Top5<br />
+     * @Author: sanyeshu <br/>
+     * @Date: 2023/3/13 17:24 <br/>
+     * @param: Long id 探店笔记id<br/>
+     * @Return: com.hmdp.dto.Result <br/>
+     * @Throws:
+     */
+    @GetMapping("/likes/{id}")
+    public Result queryBlogLikes(@PathVariable("id") Long id) {
+        List<UserDTO> userDTOS = blogService.getBlogLikes(id);
+        return Result.ok(userDTOS);
     }
 
     @GetMapping("/of/me")
@@ -63,21 +81,32 @@ public class BlogController {
         return Result.ok(records);
     }
 
+    /**
+     * @Description: 查询热门笔记<br />
+     * @Author: sanyeshu <br/>
+     * @Date: 2023/3/12 18:26 <br/>
+     * @param: Integer current <br/>
+     * @Return: com.hmdp.dto.Result <br/>
+     * @Throws:
+     */
     @GetMapping("/hot")
     public Result queryHotBlog(@RequestParam(value = "current", defaultValue = "1") Integer current) {
-        // 根据用户查询
-        Page<Blog> page = blogService.query()
-                .orderByDesc("liked")
-                .page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
-        // 获取当前页数据
-        List<Blog> records = page.getRecords();
-        // 查询用户
-        records.forEach(blog ->{
-            Long userId = blog.getUserId();
-            User user = userService.getById(userId);
-            blog.setName(user.getNickName());
-            blog.setIcon(user.getIcon());
-        });
-        return Result.ok(records);
+
+        List<Blog> hotBlog = blogService.getHotBlog(current);
+        return Result.ok(hotBlog);
+    }
+
+    /**
+     * @Description: 查询笔记详细<br />
+     * @Author: sanyeshu <br/>
+     * @Date: 2023/3/12 18:26 <br/>
+     * @param: Long id <br/>
+     * @Return: com.hmdp.dto.Result <br/>
+     * @Throws:
+     */
+    @GetMapping("/{id}")
+    public Result queryBlogById(@PathVariable("id") Long id) {
+        Blog blogById = blogService.getBlogById(id);
+        return Result.ok(blogById);
     }
 }
