@@ -1,16 +1,23 @@
 package com.hmdp.service;
 
-import com.hmdp.entity.Follow;
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.hmdp.dto.UserDTO;
+import com.hmdp.entity.Follow;
+
+import java.util.List;
 
 /**
  * <p>
- *  服务类
+ * 服务类
  * </p>
  *
  * @author 虎哥
  * @since 2021-12-22
  */
 public interface IFollowService extends IService<Follow> {
+    boolean doFollow(Long followUserId, Boolean followable);
 
+    boolean isFollow(Long followUserId);
+
+    List<UserDTO> followCommon(Long followUserId);
 }

@@ -109,4 +109,22 @@ public class BlogController {
         Blog blogById = blogService.getBlogById(id);
         return Result.ok(blogById);
     }
+
+
+    /**
+     * @Description: 查询用户写的探店笔记<br />
+     * @Author: sanyeshu <br/>
+     * @Date: 2023/3/14 0:12 <br/>
+     * @param: Integer current
+     * @param: Long id <br/>
+     * @Return: com.hmdp.dto.Result <br/>
+     * @Throws:
+     */
+    @GetMapping("/of/user")
+    public Result queryBlogByUserId(@RequestParam(value = "current", defaultValue = "1") Integer current,
+                                    @RequestParam("id") Long id) {
+        Page<Blog> page = blogService.query().eq("user_id", id).page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
+        return Result.ok(page.getRecords());
+    }
+
 }
