@@ -82,6 +82,14 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
         return (count > 0);
     }
 
+    /**
+     * @Description: 查看共同关注用户<br />
+     * @Author: sanyeshu <br/>
+     * @Date: 2023/3/15 12:43 <br/>
+     * @param: Long followUserId <br/>
+     * @Return: java.util.List<com.hmdp.dto.UserDTO> <br/>
+     * @Throws:
+     */
     @Override
     public List<UserDTO> followCommon(Long followUserId) {
         // 获取当前用户ID

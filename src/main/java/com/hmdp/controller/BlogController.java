@@ -3,6 +3,7 @@ package com.hmdp.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.ScrollResult;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
 import com.hmdp.service.IBlogService;
@@ -28,16 +29,12 @@ public class BlogController {
     @Resource
     private IBlogService blogService;
 
-
     @PostMapping
     public Result saveBlog(@RequestBody Blog blog) {
-        // 获取登录用户
-        UserDTO user = UserHolder.getUser();
-        blog.setUserId(user.getId());
         // 保存探店博文
-        blogService.save(blog);
+        long blogId = blogService.saveBlog(blog);
         // 返回id
-        return Result.ok(blog.getId());
+        return Result.ok(blogId);
     }
 
     /**
@@ -126,5 +123,15 @@ public class BlogController {
         Page<Blog> page = blogService.query().eq("user_id", id).page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
         return Result.ok(page.getRecords());
     }
+
+    @GetMapping("/of/follow")
+    public Result queryFollowBlog(@RequestParam(value = "lastId", required = false) Long lastId,
+                                  @RequestParam(value = "id", required = false) Integer offset) {
+
+        ScrollResult scrollResult = blogService.queryFollowBlog(lastId, offset);
+//        Page<Blog> page = blogService.query().eq("user_id", id).page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
+        return Result.ok(scrollResult);
+    }
+
 
 }
