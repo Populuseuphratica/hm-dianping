@@ -39,29 +39,13 @@ class HmDianPingApplicationTests {
     }
 
     @Test
-    public void testMultiLock(RedissonClient redisson1,
-                              RedissonClient redisson2, RedissonClient redisson3) {
+    public void test() {
 
-        // 分别用各服务器的 redisson 获取一个锁
-        RLock lock1 = redisson1.getLock("lock1");
-        RLock lock2 = redisson2.getLock("lock2");
-        RLock lock3 = redisson3.getLock("lock3");
-
-        // 将各个锁设置为一个连锁
-        RedissonMultiLock lock = new RedissonMultiLock(lock1, lock2, lock3);
-
-        try {
-            // 同时加锁：lock1 lock2 lock3, 所有的锁都上锁成功才算成功。
-            lock.lock();
-
-            // 尝试加锁，最多等待100秒，上锁以后10秒自动解锁
-            boolean res = lock.tryLock(100, 10, TimeUnit.SECONDS);
-
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        } finally {
-            lock.unlock();
+        long l = 61;
+        while ((l & 1) == 1) {
+            System.out.println(Long.toBinaryString(l));
+            l = l >> 1;
         }
-
     }
+
 }

@@ -12,13 +12,17 @@ import com.hmdp.entity.User;
 import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.RegexUtils;
+import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpSession;
+import java.time.LocalDate;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -59,8 +63,69 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         return Result.ok(code);
     }
 
-    public void Logout() {
-        
+    @Override
+    public void logout(String token) {
+        // 删除redis中缓存
+        stringRedisTemplate.delete(LOGIN_USER_KEY + token);
+    }
+
+    /**
+     * @Description: 用户签到<br />
+     * @Author: sanyeshu <br/>
+     * @Date: 2023/3/18 6:39 <br/>
+     * @param: <br/>
+     * @Return: boolean <br/>
+     * @Throws:
+     */
+    @Override
+    public boolean sign() {
+        Long userId = UserHolder.getUser().getId();
+        LocalDate localDate = LocalDate.now();
+        int year = localDate.getYear();
+        int monthValue = localDate.getMonthValue();
+        int dayOfMonth = localDate.getDayOfMonth();
+        String rediskey = USER_SIGN_KEY + userId + ":" + year + monthValue;
+
+        // set redis 对应日期的bitmap为1，因为从0开始要-1
+        Boolean isSign = stringRedisTemplate.opsForValue().setBit(rediskey, dayOfMonth - 1, true);
+        return Boolean.TRUE.equals(isSign);
+    }
+
+    @Override
+    public Integer signCount() {
+        // 获取当前用户的id
+        Long userId = UserHolder.getUser().getId();
+
+        // 获取当前日期
+        LocalDate localDate = LocalDate.now();
+        int year = localDate.getYear();
+        int monthValue = localDate.getMonthValue();
+        int dayOfMonth = localDate.getDayOfMonth();
+
+        // 根据用户id、年份和月份构建redis的key
+        String redisKey = USER_SIGN_KEY + userId + ":" + year + monthValue;
+
+        // 执行redis命令，获取本月签到数据
+        BitFieldSubCommands bitFieldSubCommands = BitFieldSubCommands.create().get(BitFieldSubCommands.BitFieldType.unsigned(dayOfMonth)).valueAt(0);
+        List<Long> bitFieldList = stringRedisTemplate.opsForValue().bitField(redisKey, bitFieldSubCommands);
+
+        // 判断是否存在对应的bit位数据
+        if (bitFieldList == null && bitFieldList.size() == 0) {
+            return 0;
+        }
+        Long signBit = bitFieldList.get(0);
+        if (signBit == null || signBit == 0) {
+            return 0;
+        }
+
+        // 统计连续签到的个数
+        int count = 0;
+        while ((signBit ^ 1) == 1) {
+            count++;
+            signBit = signBit >> 1;
+        }
+
+        return count;
     }
 
     @Override

@@ -14,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 
 /**
@@ -59,8 +60,10 @@ public class UserController {
      * @return 无
      */
     @PostMapping("/logout")
-    public Result logout() {
-        // TODO 实现登出功能
+    public Result logout(HttpServletRequest request) {
+        //1.获取请求头中的token
+        String token = request.getHeader("authorization");
+        userService.logout(token);
         return Result.ok();
     }
 
@@ -94,5 +97,35 @@ public class UserController {
         return Result.ok(userDTO);
     }
 
+    /**
+     * @Description: 用户签到<br />
+     * @Author: sanyeshu <br/>
+     * @Date: 2023/3/18 6:40 <br/>
+     * @param: <br/>
+     * @Return: com.hmdp.dto.Result <br/>
+     * @Throws:
+     */
+    @PostMapping("/sign")
+    public Result sign() {
+        boolean isSign = userService.sign();
+        if (isSign) {
+            return Result.ok();
+        } else {
+            return Result.fail("签到失败，请重试");
+        }
+    }
 
+    /**
+     * @Description: 统计当前用户连续签到的天数<br />
+     * @Author: sanyeshu <br/>
+     * @Date: 2023/3/18 17:26 <br/>
+     * @param: <br/>
+     * @Return: com.hmdp.dto.Result <br/>
+     * @Throws:
+     */
+    @GetMapping("/sign/count")
+    public Result signCount() {
+        Integer count = userService.signCount();
+        return Result.ok(count);
+    }
 }
